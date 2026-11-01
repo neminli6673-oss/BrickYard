@@ -89,6 +89,7 @@ button {
   border: 2px solid var(--line); border-radius: 12px; padding: 10px 16px; cursor: pointer;
 }
 button:hover { background: var(--hover); }
+button.small { padding: 6px 12px; font-size: 13px; color: var(--muted); border-width: 1px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 button.primary:hover { filter: brightness(1.08); }
 :focus-visible { outline: 3px solid var(--c4); outline-offset: 2px; }
@@ -288,7 +289,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   let fx = [], parts = [], pops = [], shake = 0;
   let cell = 56, size = 448;
   let soundOn = true, ac = null;
-  try { best = parseInt(localStorage.getItem('brickyard-best') || '0', 10) || 0; } catch (e) { /* storage blocked */ }
+  const gain = 1.25; /* how far a piece moves per finger movement on touch screens */
+  try { best =parseInt(localStorage.getItem('brickyard-best') || '0', 10) || 0; } catch (e) { /* storage blocked */ }
 
   const filled = () => { let n = 0; for (const row of grid) for (const v of row) if (v >= 0) n++; return n; };
   function fits(p, r, c) {
@@ -527,7 +529,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
     if (!dragging || e.pointerId !== dragging.pid) return;
     const d = dragging;
     const lift = d.touch ? d.ph / 2 + cell * 1.4 : cell * 0.25;
-    const x = e.clientX - d.pw / 2, y = e.clientY - d.ph / 2 - lift;
+    const k = d.touch ? gain : 1;
+    const cx = d.sx + (e.clientX - d.sx) * k, cy = d.sy + (e.clientY - d.sy) * k - lift;
+    const x = cx - d.pw / 2, y = cy - d.ph / 2;
     d.el.style.transform = 'translate(' + x + 'px,' + y + 'px)';
     const rect = canvas.getBoundingClientRect();
     const fr = (y - rect.top) / cell, fc = (x - rect.left) / cell;
@@ -575,7 +579,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
     const el = pieceCanvas(p, cell);
     el.className = 'drag';
     document.body.appendChild(el);
-    dragging = { i, p, el, pw: p.w * cell, ph: p.h * cell, touch: e.pointerType === 'touch', pid: e.pointerId, pos: null, lines: null };
+    dragging = { i, p, el, pw: p.w * cell, ph: p.h * cell, touch: e.pointerType === 'touch', pid: e.pointerId, pos: null, lines: null, sx: e.clientX, sy: e.clientY };
     slot.classList.add('lifted');
     document.body.classList.add('dragging');
     window.addEventListener('pointermove', onMove);
