@@ -8,8 +8,8 @@
   const rootStyle = getComputedStyle(document.documentElement);
   const tok = (n, f) => rootStyle.getPropertyValue(n).trim() || f;
   const COLORS = ['#f0524d', '#ff9d2e', '#f2d64b', '#58cc59', '#3aa9f2', '#a864f0'].map((f, i) => tok('--c' + i, f));
-  const C_CELL = tok('--cell', '#212b76'), C_CELL2 = tok('--cell-alt', '#27338a'), C_BOARD = tok('--board', '#0f1540');
-  const C_ACCENT = tok('--accent', '#ffd23f');
+  let C_CELL = tok('--cell', '#212b76'), C_CELL2 = tok('--cell-alt', '#27338a'), C_BOARD = tok('--board', '#0f1540');
+  let C_ACCENT = tok('--accent', '#ffd23f');
   const DISPLAY = tok('--display', "'Arial Rounded MT Bold', Arial, sans-serif");
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const GAIN = 1.25; /* how far a piece moves per finger movement on touch screens */
@@ -115,8 +115,52 @@
 
   /* ---------- state ---------- */
   let grid, tray, score, shown = 0, best = 0, combo, sinceClear, over, dragging = null, epoch = 0, dirty = true;
-  let fx = [], parts = [], pops = [], rings = [], beams = [], flash = 0, shake = 0;
+  let fx = [], parts = [], pops = [], rings = [], beams = [], lands = [], flash = 0, shake = 0;
   let cell = 56, size = 448;
+  let themeId = 'midnight', lastLevel = 0;
+
+  /* ---------- themes: each one sets the page colors and the six block colors ---------- */
+  const THEMES = {
+    midnight: { name: 'Midnight', v: { bg: '#18215a', glow: 'rgba(96,120,255,0.38)', board: '#0f1540', cell: '#212b76', 'cell-alt': '#27338a', panel: '#2a3898', line: '#4254bd', accent: '#ffd23f', 'accent-ink': '#3a2a00', scrim: 'rgba(7,11,38,0.74)' }, c: ['#f0524d', '#ff9d2e', '#f2d64b', '#58cc59', '#3aa9f2', '#a864f0'] },
+    sunset: { name: 'Sunset', v: { bg: '#3b1d4f', glow: 'rgba(255,140,90,0.36)', board: '#25102f', cell: '#3a1d4a', 'cell-alt': '#43225a', panel: '#55306e', line: '#7a4a99', accent: '#ffd23f', 'accent-ink': '#3a2a00', scrim: 'rgba(24,8,34,0.76)' }, c: ['#ff5a5f', '#ff9f43', '#ffd93d', '#6bd968', '#48c9e8', '#c48bff'] },
+    forest: { name: 'Forest', v: { bg: '#123b2e', glow: 'rgba(80,220,140,0.3)', board: '#0a261d', cell: '#134233', 'cell-alt': '#17503d', panel: '#1c6048', line: '#2f8a67', accent: '#ffe04a', 'accent-ink': '#3a2f00', scrim: 'rgba(4,22,16,0.76)' }, c: ['#f26b5b', '#f2a33a', '#e8d84a', '#7bd957', '#3fc6c0', '#8f7cf0'] },
+    ocean: { name: 'Ocean', v: { bg: '#0e4a6e', glow: 'rgba(120,230,255,0.34)', board: '#082f47', cell: '#0f4966', 'cell-alt': '#135578', panel: '#1a6a96', line: '#3b94c2', accent: '#ffe066', 'accent-ink': '#3a2f00', scrim: 'rgba(3,26,42,0.76)' }, c: ['#ff6b6b', '#ffa94d', '#ffe066', '#69db7c', '#4dabf7', '#b197fc'] },
+    candy: { name: 'Candy', v: { bg: '#5a1d55', glow: 'rgba(255,120,220,0.36)', board: '#3c1038', cell: '#571f52', 'cell-alt': '#62275c', panel: '#7d3578', line: '#a355a0', accent: '#ffe45c', 'accent-ink': '#3a2f00', scrim: 'rgba(36,6,32,0.76)' }, c: ['#ff5c8a', '#ff9a5c', '#ffe45c', '#5cf0a0', '#5cc8ff', '#c07dff'] },
+    graphite: { name: 'Graphite', v: { bg: '#1d1f24', glow: 'rgba(160,170,200,0.2)', board: '#121317', cell: '#22252c', 'cell-alt': '#282c34', panel: '#2e323b', line: '#484e5c', accent: '#ffcf4a', 'accent-ink': '#3a2a00', scrim: 'rgba(8,9,12,0.78)' }, c: ['#ff5252', '#ff9800', '#ffd600', '#4caf50', '#29b6f6', '#ab47bc'] }
+  };
+  function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+  function applyTheme(id) {
+    const t = THEMES[id] || THEMES.midnight;
+    themeId = THEMES[id] ? id : 'midnight';
+    const old = COLORS.slice();
+    const st = document.documentElement.style;
+    for (const k in t.v) st.setProperty('--' + k, t.v[k]);
+    t.c.forEach((col, i) => { COLORS[i] = col; st.setProperty('--c' + i, col); });
+    st.backgroundColor = t.v.bg;
+    C_CELL = t.v.cell; C_CELL2 = t.v['cell-alt']; C_BOARD = t.v.board; C_ACCENT = t.v.accent;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', t.v.bg);
+    bgCv = null; sprites = {}; dirty = true;
+    if (tray && tray.length) {
+      tray.forEach((p) => { const i = old.indexOf(p.color); if (i >= 0) p.color = COLORS[i]; });
+      buildTray(false);
+    }
+  }
+  /* soft colored glow behind the board whenever lines clear; the whole backdrop slowly shifts hue as the score grows */
+  function pulseAura(color, n) {
+    if (reduce) return;
+    const a = $('aura');
+    a.style.background = 'radial-gradient(80% 55% at 50% 48%, ' + rgba(color, 0.55) + ', transparent 72%)';
+    if (a.animate) a.animate([{ opacity: 0 }, { opacity: Math.min(1, 0.5 + n * 0.15), offset: 0.2 }, { opacity: 0 }], { duration: 900 + n * 150, easing: 'ease-out' });
+  }
+  function driftSky() {
+    if (reduce) return;
+    const level = Math.floor(score / 1500);
+    if (level === lastLevel) return;
+    lastLevel = level;
+    $('sky').style.filter = 'hue-rotate(' + (level * 38) % 360 + 'deg)';
+    pulseAura(C_ACCENT, 2);
+  }
   let soundOn = true, vibLevel = 2, helpful = true, ac = null;
   let setNo = 0, recent = [];
   const canVibrate = typeof navigator.vibrate === 'function';
@@ -407,6 +451,7 @@
   }
   function hud(bumpScore) {
     dirty = true;
+    driftSky();
     $('best').textContent = best.toLocaleString();
     if (!scoreRaf) scoreRaf = requestAnimationFrame(tickScore);
     if (bumpScore) bump($('score'));
@@ -418,7 +463,8 @@
     grid = Array.from({ length: N }, () => Array(N).fill(-1));
     score = 0; shown = 0; combo = 0; sinceClear = 0; over = false;
     $('score').textContent = '0';
-    fx = []; parts = []; pops = []; rings = []; beams = []; flash = 0; shake = 0;
+    fx = []; parts = []; pops = []; rings = []; beams = []; lands = []; flash = 0; shake = 0;
+    lastLevel = 0; $('sky').style.filter = '';
     setNo = 0; recent = [];
     tray = genSet();
     overEl.hidden = true;
@@ -435,6 +481,7 @@
     const n = rows.length + cols.length;
     const now = performance.now();
     const cx = (c + p.w / 2) * cell, cy = (r + p.h / 2) * cell;
+    if (!reduce) p.cells.forEach(([dr, dc]) => lands.push({ r: r + dr, c: c + dc, color: p.color, t0: now }));
 
     if (n > 0) {
       const inRow = new Set(rows), inCol = new Set(cols);
@@ -503,6 +550,7 @@
         t0: now, dur: 1250, lines
       });
       sfxClear(n, combo);
+      pulseAura(p.color, n);
       buzz(n === 1 ? [26] : n === 2 ? [30, 40, 30] : n === 3 ? [36, 40, 36, 40, 48] : [40, 40, 40, 40, 40, 40, 80]);
     } else {
       sinceClear += 1;
@@ -608,7 +656,7 @@
   let last = performance.now();
   function frame(t) {
     const dt = Math.min(0.05, (t - last) / 1000); last = t;
-    const hadFx = !!(fx.length || parts.length || pops.length || rings.length || beams.length || flash > 0 || shake > 0 || dragging);
+    const hadFx = !!(fx.length || parts.length || pops.length || rings.length || beams.length || lands.length || flash > 0 || shake > 0 || dragging);
     if (!dirty && !hadFx) { requestAnimationFrame(frame); return; }
     const g = ctx;
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -626,6 +674,14 @@
         if (v >= 0) g.drawImage(spr(COLORS[v]), c * cell, r * cell, cell, cell);
       }
     }
+    /* a quick squash-and-settle on every block that has just been placed */
+    for (const l of lands) {
+      const lp = (t - l.t0) / 190;
+      if (lp < 0 || lp >= 1) continue;
+      const ls = cell * (1 + 0.17 * Math.sin(Math.PI * lp));
+      g.drawImage(spr(l.color), (l.c + 0.5) * cell - ls / 2, (l.r + 0.5) * cell - ls / 2, ls, ls);
+    }
+    if (lands.length) lands = lands.filter((l) => t - l.t0 < 190);
 
     if (dragging && dragging.pos) {
       const d = dragging, [pr, pc] = d.pos;
@@ -783,7 +839,24 @@
     $('vibHint').hidden = false;
     $('vibHint').textContent = 'Vibration is not available in this browser. iPhone Safari does not allow it; most Android phones do.';
   }
-  paintSound(); paintVib(); paintHelp();
+  const themeGrid = $('themeGrid');
+  function paintTheme() {
+    themeGrid.querySelectorAll('.swatch').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.t === themeId)));
+    $('themeName').textContent = THEMES[themeId].name;
+  }
+  Object.keys(THEMES).forEach((id) => {
+    const t = THEMES[id], b = document.createElement('button');
+    b.type = 'button'; b.className = 'swatch'; b.dataset.t = id; b.title = t.name; b.setAttribute('aria-label', t.name);
+    b.style.background = 'linear-gradient(135deg,' + t.v.bg + ' 0 46%,' + t.c[0] + ' 46% 66%,' + t.c[2] + ' 66% 82%,' + t.c[4] + ' 82%)';
+    b.addEventListener('click', () => {
+      applyTheme(id);
+      try { localStorage.setItem('brickyard-theme', id); } catch (e) { /* ignore */ }
+      paintTheme();
+      pulseAura(COLORS[4], 2);
+    });
+    themeGrid.appendChild(b);
+  });
+  paintSound(); paintVib(); paintHelp(); paintTheme();
 
   let resizeTimer = 0;
   const relayout = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!dragging) layout(); }, 150); };
@@ -796,6 +869,8 @@
 
   grid = Array.from({ length: N }, () => Array(N).fill(-1));
   tray = [];
+  try { const th = localStorage.getItem('brickyard-theme'); if (th && THEMES[th]) themeId = th; } catch (e) { /* ignore */ }
+  applyTheme(themeId);
   newGame();
   layout();
   buildTray(true);
