@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Brickyard">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#18215a">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>html{background:#18215a;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+<title>Brickyard</title>
+<style>
+/* Layout: one centered column. Crown + best score left and a settings button right, the big score in the middle, then the board and the three-piece tray. Deep blue ground, tight beveled blocks with small corners. */
+:root {
+  --bg: #18215a;
+  --glow: rgba(96, 120, 255, 0.38);
+  --board: #0f1540;
+  --cell: #212b76;
+  --cell-alt: #27338a;
+  --panel: #2a3898;
+  --line: #4254bd;
+  --fg: #ffffff;
+  --muted: #aab5f0;
+  --accent: #ffd23f;
+  --accent-ink: #3a2a00;
+  --scrim: rgba(7, 11, 38, 0.74);
+  --hover: rgba(255, 255, 255, 0.08);
+  --c0: #f0524d;
+  --c1: #ff9d2e;
+  --c2: #f2d64b;
+  --c3: #58cc59;
+  --c4: #3aa9f2;
+  --c5: #a864f0;
+  --display: 'Fredoka', 'Arial Rounded MT Bold', 'Avenir Next', 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { box-sizing: border-box; height: 100%; }
+body {
+  margin: 0;
+  box-sizing: border-box;
+  min-height: 100%;
+  background-color: var(--bg);
+  background-image: radial-gradient(120% 55% at 50% 0%, var(--glow), transparent 70%);
+  background-repeat: no-repeat;
+  color: var(--fg);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 16px;
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.app { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.top { width: 100%; display: flex; align-items: center; justify-content: space-between; min-height: 46px; }
+.best { display: flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 700; font-size: 24px; font-variant-numeric: tabular-nums; }
+.best svg { width: 28px; height: 28px; flex: none; }
+.best.pulse { animation: bump 0.6s ease-out; }
+.icon {
+  width: 46px; height: 46px; padding: 0; display: grid; place-items: center;
+  border-radius: 14px; border: 2px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer;
+}
+.icon:hover { background: var(--line); }
+.icon svg { width: 26px; height: 26px; }
+.scorebox { width: 100%; text-align: center; padding: 0 0 8px; }
+.score {
+  display: inline-block; font-weight: 700; font-size: clamp(54px, 15vw, 92px); line-height: 1.05;
+  font-variant-numeric: tabular-nums; text-shadow: 0 4px 0 rgba(0, 0, 0, 0.28);
+}
+.bump { animation: bump 0.25s ease-out; }
+@keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
+
+button {
+  font: inherit; font-weight: 700; color: var(--fg); background: transparent;
+  border: 2px solid var(--line); border-radius: 14px; padding: 11px 18px; cursor: pointer;
+}
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.primary:hover { filter: brightness(1.07); background: var(--accent); }
+:focus-visible { outline: 3px solid var(--c4); outline-offset: 2px; }
+
+.stage { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.boardwrap { position: relative; }
+canvas#board { display: block; touch-action: none; }
+.tray { display: flex; }
+.slot { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; border-radius: 16px; cursor: grab; touch-action: none; }
+.slot canvas { display: block; max-width: 100%; }
+.slot canvas.enter { animation: rise 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.slot.lifted canvas { visibility: hidden; }
+@keyframes rise { from { opacity: 0; transform: translateY(24px) scale(0.8); } to { opacity: 1; transform: none; } }
+.drag { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; will-change: transform; }
+body.dragging, body.dragging * { cursor: grabbing !important; }
+
+.over { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--scrim); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: fade 0.25s ease-out; }
+.card { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 24px; }
+.card h2 { font-weight: 700; font-size: 34px; margin: 0; }
+.card .big { font-weight: 700; font-size: 60px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.card .note { color: var(--accent); margin: 0 0 14px; min-height: 1.4em; font-weight: 700; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--scrim); animation: fade 0.18s ease-out; }
+.sheet {
+  width: min(360px, 100%); max-height: 100%; overflow-y: auto; background: var(--panel); border: 3px solid var(--line); border-radius: 24px;
+  padding: 18px 20px 20px; display: grid; gap: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  animation: sheetIn 0.32s cubic-bezier(0.2, 1.25, 0.3, 1) both;
+}
+@keyframes sheetIn { from { opacity: 0; transform: translateY(26px) scale(0.86); } to { opacity: 1; transform: none; } }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet h2 { margin: 0; font-size: 28px; font-weight: 700; }
+.x { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; border-radius: 12px; font-size: 20px; line-height: 1; }
+.row { display: grid; gap: 8px; }
+.row-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.row-label { font-size: 18px; }
+.switch { width: 62px; height: 34px; padding: 3px; border-radius: 17px; border: 0; background: #151c55; position: relative; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 28px; height: 28px; border-radius: 50%; background: #8d99dc; transition: transform 0.18s, background 0.18s; }
+.switch[aria-checked="true"] { background: var(--c3); }
+.switch[aria-checked="true"]::after { transform: translateX(28px); background: #fff; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.seg button { padding: 9px 0; font-size: 15px; border-radius: 12px; background: #151c55; border-color: transparent; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); font-weight: 500; line-height: 1.4; }
+.actions { display: grid; gap: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bump, .best.pulse, .slot canvas.enter, .sheet, .modal, .over { animation: none; }
+}
+</style>
+
+</head>
+<body>
+<main class="app">
+  <header class="top" id="top">
+    <div class="best" id="bestbox" title="Best score">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18.5 2 8l5 4 5-7 5 7 5-4-1 10.5z" fill="currentColor"/><rect x="3" y="20" width="18" height="2.4" rx="1.2" fill="currentColor"/></svg>
+      <span id="best">0</span>
+    </div>
+    <button id="gear" class="icon" type="button" aria-label="Settings" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2.4v3M12 18.6v3M2.4 12h3M18.6 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg>
+    </button>
+  </header>
+  <div class="scorebox" id="scorebox"><span id="score" class="score">0</span></div>
+
+  <section class="stage" id="stage">
+    <div class="boardwrap" id="boardwrap">
+      <canvas id="board" aria-label="Game board, 8 by 8"></canvas>
+      <div class="over" id="over" hidden>
+        <div class="card">
+          <h2>Game over</h2>
+          <div class="big" id="finalScore">0</div>
+          <p class="note" id="finalNote"></p>
+          <button id="again" class="primary" type="button">Play again</button>
+        </div>
+      </div>
+    </div>
+    <div class="tray" id="tray"></div>
+  </section>
+</main>
+
+<div class="modal" id="settings" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="sheet-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button id="closeSettings" class="x" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="row">
+      <div class="row-line">
+        <span class="row-label" id="soundLabel">Sound</span>
+        <button id="soundToggle" class="switch" type="button" role="switch" aria-checked="true" aria-labelledby="soundLabel"></button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="row-line">
+        <span class="row-label" id="helpLabel">Best pieces for me</span>
+        <button id="helpToggle" class="switch" type="button" role="switch" aria-checked="true" aria-labelledby="helpLabel"></button>
+      </div>
+      <p class="hint">On: you get the pieces that can score the most on your board. Off: pieces are random. Applies from the next set.</p>
+    </div>
+    <div class="row">
+      <span class="row-label">Vibration</span>
+      <div class="seg" id="vibSeg">
+        <button type="button" data-v="0" aria-pressed="false">Off</button>
+        <button type="button" data-v="1" aria-pressed="false">Low</button>
+        <button type="button" data-v="2" aria-pressed="true">Medium</button>
+        <button type="button" data-v="3" aria-pressed="false">High</button>
+      </div>
+      <p class="hint" id="vibHint" hidden></p>
+    </div>
+    <div class="actions">
+      <button id="newgame" class="primary" type="button">New game</button>
+      <button id="resume" type="button">Continue</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+<script>if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) { navigator.serviceWorker.register('sw.js').catch(function () {}); }</script>
+</body>
+</html>
